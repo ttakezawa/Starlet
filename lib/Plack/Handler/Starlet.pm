@@ -11,20 +11,23 @@ sub new {
     my ($klass, %args) = @_;
     
     # setup before instantiation
-    my $listen_sock;
     if (defined $ENV{SERVER_STARTER_PORT}) {
-        my ($hostport, $fd) = %{Server::Starter::server_ports()};
-        if ($hostport =~ /(.*):(\d+)/) {
-            $args{host} = $1;
-            $args{port} = $2;
-        } else {
-            $args{port} = $hostport;
+        my $server_ports = Server::Starter::server_ports();
+        while (my ($hostport, $fd) = each %$server_ports) {
+            if ($hostport =~ /(.*):(\d+)/) {
+                $args{fd_info}{$fd}{host} = $1;
+                $args{fd_info}{$fd}{port} = $2;
+            } else {
+                $args{fd_info}{$fd}{port} = $hostport;
+            }
+            my $listen_sock;
+            $listen_sock = IO::Socket::INET->new(
+                Proto => 'tcp',
+            ) or die "failed to create socket:$!";
+            $listen_sock->fdopen($fd, 'w')
+                or die "failed to bind to listening socket:$!";
+            $args{fd_info}{$fd}{listen_sock} = $listen_sock;
         }
-        $listen_sock = IO::Socket::INET->new(
-            Proto => 'tcp',
-        ) or die "failed to create socket:$!";
-        $listen_sock->fdopen($fd, 'w')
-            or die "failed to bind to listening socket:$!";
     }
     my $max_workers = 10;
     for (qw(max_workers workers)) {
@@ -35,8 +38,6 @@ sub new {
     # instantiate and set the variables
     my $self = $klass->SUPER::new(%args);
     $self->{is_multiprocess} = 1;
-    $self->{listen_sock} = $listen_sock
-        if $listen_sock;
     $self->{max_workers} = $max_workers;
     
     $self;
